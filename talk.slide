@@ -1,0 +1,222 @@
+Hello, Barcampers
+Philly Barcamp
+12 Nov 2016
+
+Jon Wear
+DramaFever.com
+@genghisjahn
+
+
+* Using Golang on AWS Lambda with Apex
+
+.image images/pgm-lambda.png
+.image images/pgm-golang.png
+.image images/pgm-apex.png
+
+* First, What's Lambda?
+
+Lambda is a code that runs in response to an outside event.
+Run code without thinking about servers...
+
+.image images/aws-events.png
+
+* It does lots of things for you
+
+It'll log the events.
+
+It'll scale up as many instances as you need (contact support to increase the cap)
+
+It'll scale 'em down too.
+
+Charges you by the 100ms & by how much RAM you want the function to have when it starts up.
+
+* Things to keep in mind
+
+The process will only run for 5 minutes, max.
+
+You usually get a new instance, so you can't write to the file system
+and assume you'll have access to the files later.
+
+Supported languages are
+
+- Python
+- Javascript (node)
+- Java
+- _Any_binary_you_want_to_upload_
+
+
+
+* Before we go any further...
+
+Keep in mind that there is a lot more to this than just write Go code.
+
+You'll need to become familiar with:
+
+IAM Roles & AWS Security Groups
+
+But most of all, API Gateway.
+
+* Setting up Lambda
+
+To get a binary onto Lambda, you have to
+
+- build it
+- have a javascript file to call it
+- zip it
+- up load it
+
+You can script this, but you can also leverage Apex to do this for you...
+
+* Apex does it for you
+
+- Download
+- Upgrade to latest using *apex*upgrade*
+- *apex*init*
+
+Init will pull AWS User credentials from .aws or environment variables.
+These are the credentials it will use to interact with AWS.
+It'll also create a Role and some files to get you started.
+
+.link http://apex.run/
+
+It gives you a demo function, but let's look at these json files
+
+`project.json`
+`function.json`
+
+Show example from adder
+
+Get these set correctly, and then we write our golang code...
+
+* Golang on Apex
+
+- Lambda passes a large context object to your lambda code
+- You'll want that info (query strings, environment variables,  etc.)
+- Use this struct to get it all:
+
+.link https://github.com/genghisjahn/apex-demo/blob/master/functions/dbcall/main.go#L227
+
+I got this from logging the json in the incoming event, then I used
+
+.link http://json2struct.mervine.net/
+
+to convert to a golang struct.  But you'll need to hand edit if you do that.
+(Querystring.Properties to QueryString `map[string]string`)
+
+
+* Deploying is simple
+
+`apex` `deploy` will deploy all of your functions in a project
+
+`apex` `deploy` `functionname` will deploy just the function named
+
+I'll show you... (add some logging, deploy the adder)
+
+* Let's look at API Gateway so we can call this...
+
+- Create API, name it
+- Create Resource {num1} & {num2}
+- Create GET method on {num2}
+- Choose Lambda Function (actordemoaddition)
+- Integration Request
+- Body Mapping Templates
+- Choose When there are no templates defined (recommended)
+- Add mapping template application/json
+- Choose method request passthrough (explain & event struct)
+- Deploy to Demo stage (staging variables)
+- Explain staging variable gotchas based on path
+- Show API
+
+* What does the Go code look like?
+
+It's looks kinda like this...
+
+.link https://github.com/genghisjahn/apex-demo/blob/master/functions/addition/main.go main.go
+
+- Show main entry point
+- Event Unmarshalling
+- Pulling variables from path
+- Log to stderr
+
+* What about the VPC?  I was promised Database access and stuff
+
+Show dbcall `functions.json`
+
+.code /code/function.json
+
+You gotta give a security group for the Lambda function to run in
+plus at least two subnet groups.
+
+* Make sure the resources allow access from that security group
+
+.image /images/inbound.png
+
+This is the biggest thing to keep in mind while you are debugging.
+
+Get the logging to stderr setup first, so you can make sure you are getting any connection errors.
+
+* Setup API Gateway for DB/Redis Connection
+
+You can staging variables to inject connection info
+
+.image /images/staging-vars.png
+
+- Show what the tabs can do
+
+* Setup path & query string params
+
+- type (path)
+- ?id
+- &refresh
+
+Show how each is consumed in go code
+
+_Every_time_you_make_a_change_to_api_gateway_you_must_click_Deploy_API_or_the_changes_won't_take!!!_
+
+* Process the request
+
+- Turn the json event into an instance of our event struct
+- Make sure the values are correct
+- Check the redis cache (LRU!)
+- If there, return
+- If not, pull from db, write to cache and then return
+
+* Speaking of Redis
+
+There's lots of info about caching.
+
+.link http://redis.io/topics/lru-cache Least Recently Used
+.link https://coderanch.com/wiki/660295/Caching-Strategies Caching Strategies
+.link http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/ParameterGroups.Redis.html AWS Redis Parameter Groups
+
+
+* Other things
+
+- Keeping Lambda warm
+- Other Apex commands (list, delete, build,rollback,logs  )
+- Deploy history of gateway api
+
+
+* Does it make sense cost wise?
+
+Well, probably.
+
+- How much RAM do you need?
+- How long does the task run?
+- How many requests?
+
+.link https://pinboard.in/u:genghisjahn/t:pricing/ Pricing
+
+* Where to cache?
+
+You can cache within the function, but that means every call goes into the function, although you can share a Redis instance
+
+You can cache at the API Gateway level, but then you have to pay for caching for each API.
+
+* What next?
+
+I'm going to try and get this in production.
+
+- It's there on features.
+- It might be there on cost.
+- I want to see how it holds up.
